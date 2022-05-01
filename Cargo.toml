@@ -1,0 +1,23 @@
+[package]
+name = "grunt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1.0"
+time = { version = "0.3", features = ["formatting"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tokio = { version = "1.18", features = ["sync", "rt-multi-thread", "macros"] }
+tokio_schedule = "0.3"
+futures-util = "0.3"
+gumdrop = "0.8"
+axum = "0.5"
+tower-http = { version = "0.3", features = ["auth", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+sled = "0.34"
+typed-sled = { git = "https://github.com/jac3km4/typed-sled.git", rev = "v0.2.0-zero-copy" }
+
+[dependencies.rss]
+path = "./rss"
+features = ["client", "rustls"]

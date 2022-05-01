@@ -1,0 +1,20 @@
+[package]
+name = "rss"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+strong-xml = "0.6"
+time = { version = "0.3", features = ["parsing", "formatting"] }
+thiserror = { version = "1.0", optional = true }
+ownref = { version = "0.3", optional = true }
+
+[dependencies.generic-async-http-client]
+version = "0.3"
+features = ["use_hyper"]
+default-features = false
+optional = true
+
+[features]
+client = ["dep:generic-async-http-client", "dep:ownref", "dep:thiserror"]
+rustls = ["generic-async-http-client?/rustls"]
