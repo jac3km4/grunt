@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use futures_util::future::join_all;
-use rss::client::RssRequest;
-use rss::feed::Feed;
+use rsst::client::RssRequest;
+use rsst::feed::Feed;
 use sled::transaction::ConflictableTransactionError;
 use time::OffsetDateTime;
 use typed_sled::Tree;

@@ -9,7 +9,7 @@ pub enum ServiceEror {
     #[error("transaction failed: {0}")]
     TransactionFailed(#[from] sled::transaction::TransactionError),
     #[error("rss client error: {0}")]
-    RssError(#[from] rss::client::RssError),
+    RssError(#[from] rsst::client::RssError),
 }
 
 impl IntoResponse for ServiceEror {

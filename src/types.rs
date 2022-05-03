@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use rss::feed::{ContentMedium, Feed, Item};
+use rsst::feed::{ContentMedium, Feed, Item};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 

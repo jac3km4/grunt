@@ -8,7 +8,7 @@ use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
-use rss::client::RssRequest;
+use rsst::client::RssRequest;
 use serde::Deserialize;
 use time::OffsetDateTime;
 use tower_http::auth::RequireAuthorizationLayer;
