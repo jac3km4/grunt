@@ -35,7 +35,7 @@ pub async fn refresh_all_subsripions(repo: Arc<Repo<'_>>) -> Result<(), ServiceE
     }
     for res in join_all(tasks).await {
         match res {
-            Ok((feed_id, feed)) => refresh_feed(repo.clone(), feed_id, &feed).await?,
+            Ok((feed_id, feed)) => refresh_feed(repo.clone(), feed_id, feed.borrow_feed()).await?,
             Err(err) => tracing::error!("failed to retrieve a feed: {err}"),
         }
     }
@@ -47,7 +47,7 @@ pub async fn refresh_feed(repo: Arc<Repo<'_>>, feed_id: FeedId, rss: &Feed<'_>) 
         let created_at = OffsetDateTime::now_utc();
 
         for item in &rss.channel.items {
-            if let Some(ident) = item.guid.as_ref().map(|guid| &guid.value).or(item.link.as_ref()) {
+            if let Some(ident) = item.guid.as_ref().map(|guid| guid.value).or(item.link) {
                 let id = EntryId::from_ident(ident);
                 let entry = Entry::from_item(id, feed_id, item, created_at);
                 if entries.insert(&id, &entry)?.is_none() {

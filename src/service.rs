@@ -5,7 +5,7 @@ use axum::body::Body;
 use axum::extract::Query;
 use axum::handler::Handler;
 use axum::http::{Request, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use rss::client::RssRequest;
@@ -77,7 +77,6 @@ async fn post_unread(
         batch.insert(&entry, &());
     }
     repo.unread.apply_batch(batch)?;
-    repo.unread.flush_async().await?;
 
     Ok::<_, ServiceEror>(StatusCode::OK)
 }
@@ -91,7 +90,6 @@ async fn delete_unread(
         batch.remove(&entry);
     }
     repo.unread.apply_batch(batch)?;
-    repo.unread.flush_async().await?;
 
     Ok::<_, ServiceEror>(StatusCode::OK)
 }
@@ -110,7 +108,6 @@ async fn post_starred(
         batch.insert(&entry, &());
     }
     repo.starred.apply_batch(batch)?;
-    repo.starred.flush_async().await?;
 
     Ok::<_, ServiceEror>(StatusCode::OK)
 }
@@ -124,7 +121,6 @@ async fn delete_starred(
         batch.remove(&entry);
     }
     repo.starred.apply_batch(batch)?;
-    repo.starred.flush_async().await?;
 
     Ok::<_, ServiceEror>(StatusCode::OK)
 }
@@ -147,18 +143,18 @@ async fn get_entries(
 async fn add_subscription<'a>(
     Extension(repo): Extension<Arc<Repo<'_>>>,
     Json(add_sub): Json<AddSubscription<'a>>,
-) -> impl IntoResponse + 'a {
+) -> Result<Response, ServiceEror> {
     let id = FeedId::generate(&repo.db)?;
     let created_at = OffsetDateTime::now_utc();
     let feed = RssRequest::new(&add_sub.feed_url)?.exec().await?;
-    let sub = Subscription::from_feed(id, &feed, add_sub.feed_url, created_at);
+    let sub = Subscription::from_feed(id, feed.borrow_feed(), add_sub.feed_url, created_at);
 
     repo.subs.insert(&id, &sub)?;
-    repo::refresh_feed(repo.clone(), id, &feed).await?;
+    repo::refresh_feed(repo.clone(), id, feed.borrow_feed()).await?;
     repo.db.flush_async().await?;
 
     tracing::info!("successfully added a subscription for {}", sub.feed_url);
-    Ok::<_, ServiceEror>((StatusCode::OK, Json(sub)))
+    Ok((StatusCode::OK, Json(sub)).into_response())
 }
 
 async fn refresh_subscriptions(Extension(repo): Extension<Arc<Repo<'_>>>) -> impl IntoResponse {

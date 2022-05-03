@@ -1,87 +1,68 @@
-#![allow(unused_must_use)]
-use std::borrow::Cow;
-use std::fmt;
-use std::str::FromStr;
-
-use strong_xml::{XmlRead, XmlWrite};
+use serde::{Deserialize, Serialize};
 use time::{format_description, OffsetDateTime};
 
-#[derive(Debug, XmlWrite, XmlRead)]
-#[xml(tag = "rss")]
+#[derive(Debug, Deserialize)]
 pub struct Feed<'a> {
-    #[xml(child = "channel")]
+    #[serde(borrow)]
     pub channel: Channel<'a>,
 }
 
-#[derive(Debug, XmlWrite, XmlRead)]
-#[xml(tag = "channel")]
+#[derive(Debug, Deserialize)]
 pub struct Channel<'a> {
-    #[xml(flatten_text = "title")]
-    pub title: Cow<'a, str>,
-    #[xml(flatten_text = "link")]
-    pub link: Cow<'a, str>,
-    #[xml(flatten_text = "description")]
-    pub description: Cow<'a, str>,
-    #[xml(flatten_text = "language")]
-    pub language: Option<Cow<'a, str>>,
-    #[xml(child = "item")]
+    pub title: &'a str,
+    pub link: &'a str,
+    pub description: Option<&'a str>,
+    pub language: Option<&'a str>,
+    #[serde(rename = "item", default)]
     pub items: Vec<Item<'a>>,
 }
 
-#[derive(Debug, XmlWrite, XmlRead)]
-#[xml(tag = "item")]
+#[derive(Debug, Deserialize)]
 pub struct Item<'a> {
-    #[xml(flatten_text = "title")]
-    pub title: Option<Cow<'a, str>>,
-    #[xml(flatten_text = "link")]
-    pub link: Option<Cow<'a, str>>,
-    #[xml(flatten_text = "description")]
-    pub description: Option<Cow<'a, str>>,
-    #[xml(flatten_text = "author")]
-    pub author: Option<Cow<'a, str>>,
-    #[xml(child = "enclosure")]
+    pub title: Option<&'a str>,
+    pub link: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub author: Option<&'a str>,
     pub enclosure: Option<Enclosure<'a>>,
-    #[xml(child = "guid")]
     pub guid: Option<Guid<'a>>,
-    #[xml(flatten_text = "pubDate")]
+    #[serde(rename = "pubDate")]
     pub pub_date: Option<PubDate>,
-    #[xml(flatten_text = "content")]
-    pub content: Option<Cow<'a, str>>,
-    #[xml(flatten_text = "content:encoded")]
-    pub content_encoded: Option<Cow<'a, str>>,
-    #[xml(child = "media:content")]
-    pub media_content: Vec<MediaContent<'a>>,
+    #[serde(rename = "content")]
+    pub content: Option<&'a str>,
+    #[serde(rename = "$ns:content", default)]
+    pub media: Vec<MediaContent<'a>>,
 }
 
-#[derive(Debug, XmlWrite, XmlRead)]
-#[xml(tag = "guid")]
+#[derive(Debug, Deserialize)]
 pub struct Guid<'a> {
-    #[xml(text)]
-    pub value: Cow<'a, str>,
-    #[xml(attr = "isPermaLink")]
+    #[serde(rename = "$text")]
+    pub value: &'a str,
+    #[serde(rename = "isPermaLink")]
     pub is_perma_link: bool,
 }
 
-#[derive(Debug, XmlWrite, XmlRead)]
-#[xml(tag = "enclosure")]
+#[derive(Debug, Deserialize)]
 pub struct Enclosure<'a> {
-    #[xml(attr = "url")]
-    pub url: Cow<'a, str>,
-    #[xml(attr = "length")]
+    pub url: &'a str,
     pub length: u32,
-    #[xml(attr = "type")]
-    pub mime_type: Cow<'a, str>,
+    pub mime_type: &'a str,
 }
 
-#[derive(Debug, XmlWrite, XmlRead)]
-#[xml(tag = "media:content")]
+#[derive(Debug, Deserialize)]
 pub struct MediaContent<'a> {
-    #[xml(attr = "url")]
-    pub url: Cow<'a, str>,
-    #[xml(attr = "type")]
-    pub mime_type: Option<Cow<'a, str>>,
-    #[xml(attr = "medium")]
+    pub url: Option<&'a str>,
+    pub mime_type: Option<&'a str>,
     pub medium: Option<ContentMedium>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContentMedium {
+    Image,
+    Audio,
+    Video,
+    Document,
+    Executable,
 }
 
 #[derive(Debug, Clone)]
@@ -93,68 +74,26 @@ impl From<PubDate> for OffsetDateTime {
     }
 }
 
-impl FromStr for PubDate {
-    type Err = time::error::Parse;
-
-    fn from_str(str: &str) -> Result<Self, Self::Err> {
-        let res = time::OffsetDateTime::parse(&str, &format_description::well_known::Rfc2822)?;
+impl<'de> Deserialize<'de> for PubDate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let str = Deserialize::<'de>::deserialize(deserializer)?;
+        let res = time::OffsetDateTime::parse(str, &format_description::well_known::Rfc2822)
+            .map_err(serde::de::Error::custom)?;
         Ok(PubDate(res))
     }
 }
 
-impl fmt::Display for PubDate {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let res = self
-            .0
+impl Serialize for PubDate {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0
             .format(&format_description::well_known::Rfc2822)
-            .map_err(|_| fmt::Error)?;
-        f.write_str(&res)
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContentMedium {
-    Image,
-    Audio,
-    Video,
-    Document,
-    Executable,
-}
-
-impl FromStr for ContentMedium {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "image" => Ok(Self::Image),
-            "audio" => Ok(Self::Audio),
-            "video" => Ok(Self::Video),
-            "document" => Ok(Self::Document),
-            "executable" => Ok(Self::Executable),
-            _ => Err(ParseError),
-        }
-    }
-}
-
-impl fmt::Display for ContentMedium {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ContentMedium::Image => f.write_str("image"),
-            ContentMedium::Audio => f.write_str("audio"),
-            ContentMedium::Video => f.write_str("video"),
-            ContentMedium::Document => f.write_str("document"),
-            ContentMedium::Executable => f.write_str("executable"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ParseError;
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("parse error")
-    }
-}
-
-impl std::error::Error for ParseError {}

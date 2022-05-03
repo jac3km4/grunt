@@ -27,9 +27,9 @@ impl<'a> Subscription<'a> {
         Subscription {
             id,
             feed_id: id,
-            title: feed.channel.title.clone(),
+            title: feed.channel.title.into(),
             feed_url,
-            site_url: feed.channel.link.clone(),
+            site_url: feed.channel.link.into(),
             created_at,
         }
     }
@@ -55,33 +55,29 @@ pub struct Entry<'a> {
 
 impl<'a> Entry<'a> {
     pub fn from_item(id: EntryId, feed_id: FeedId, item: &Item<'a>, created_at: OffsetDateTime) -> Self {
-        let content = item
-            .content
-            .as_ref()
-            .or(item.content_encoded.as_ref())
-            .or(item.description.as_ref())
-            .cloned();
+        let content = item.content.or(item.description);
         let image = item
-            .media_content
+            .media
             .iter()
-            .find(|media| {
-                let mime = media.mime_type.as_deref();
-                media.medium == Some(ContentMedium::Image)
-                    || mime.filter(|str| str.starts_with("image/")).is_some()
+            .find_map(|media| {
+                media.url.filter(|_| {
+                    media.medium == Some(ContentMedium::Image)
+                        || media.mime_type.filter(|str| str.starts_with("image/")).is_some()
+                })
             })
-            .map(|media| Image {
-                url: media.url.clone(),
+            .map(|url| Image {
+                url: Cow::Borrowed(url),
             });
 
         Entry {
             id,
             feed_id,
-            title: item.title.clone(),
-            url: item.link.clone(),
+            title: item.title.map(Cow::Borrowed),
+            url: item.link.map(Cow::Borrowed),
             extracted_content_url: None,
-            author: item.author.clone(),
-            content,
-            summary: item.description.clone(),
+            author: item.author.map(Cow::Borrowed),
+            content: content.map(Cow::Borrowed),
+            summary: item.description.map(Cow::Borrowed),
             published: item.pub_date.clone().map(Into::into).unwrap_or(created_at),
             created_at,
             image,
@@ -119,7 +115,9 @@ pub struct EntryId(u64);
 
 impl EntryId {
     pub fn from_ident(str: &str) -> Self {
-        EntryId(fnv1a64(str.as_bytes()))
+        const MAX_JS_INT: u64 = (1 << 53) - 1;
+        let hash = fnv1a64(str.as_bytes());
+        EntryId(hash % MAX_JS_INT)
     }
 }
 
@@ -132,5 +130,5 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
         hash ^= *byte as u64;
         hash = hash.wrapping_mul(PRIME);
     }
-    (hash as u32) as u64
+    hash
 }
