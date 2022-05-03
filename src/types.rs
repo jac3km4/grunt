@@ -78,9 +78,20 @@ impl<'a> Entry<'a> {
             author: item.author.map(Cow::Borrowed),
             content: content.map(Cow::Borrowed),
             summary: item.description.map(Cow::Borrowed),
-            published: item.pub_date.clone().map(Into::into).unwrap_or(created_at),
+            published: item
+                .pub_date
+                .clone()
+                .map(Into::into)
+                .unwrap_or(OffsetDateTime::UNIX_EPOCH),
             created_at,
             image,
+        }
+    }
+
+    pub fn key(&self) -> EntryKey {
+        EntryKey {
+            published: self.published,
+            id: self.id,
         }
     }
 }
@@ -131,4 +142,12 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(PRIME);
     }
     hash
+}
+
+// enables us to sort entries by publish time
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct EntryKey {
+    #[serde(with = "codecs::rfc3339_date")]
+    published: OffsetDateTime,
+    id: EntryId,
 }

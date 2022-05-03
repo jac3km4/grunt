@@ -133,6 +133,7 @@ async fn get_entries(
         .entries
         .iter()
         .values()
+        .rev()
         .skip(pagination.per_page * (pagination.page - 1))
         .take(pagination.per_page)
         .collect::<Result<Vec<_>, _>>()?;

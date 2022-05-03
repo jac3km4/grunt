@@ -40,6 +40,7 @@ async fn main() {
         unread: Tree::open(&db, "unread"),
         starred: Tree::open(&db, "starred"),
         entries: Tree::open(&db, "entries"),
+        entry_ids: Tree::open(&db, "entry_ids"),
         db,
     };
     let repo = Arc::new(repo);
