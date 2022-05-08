@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 use rsst::feed::{ContentMedium, Feed, Item};
 use serde::{Deserialize, Serialize};
@@ -54,8 +56,15 @@ pub struct Entry<'a> {
 }
 
 impl<'a> Entry<'a> {
-    pub fn from_item(id: EntryId, feed_id: FeedId, item: &Item<'a>, created_at: OffsetDateTime) -> Self {
-        let content = item.content.or(item.description);
+    pub fn from_item(feed_id: FeedId, item: &Item<'a>, created_at: OffsetDateTime) -> Option<Self> {
+        let ident = item.guid.as_ref().map(|guid| guid.value).or(item.link)?;
+        let published = item
+            .pub_date
+            .clone()
+            .map(Into::into)
+            .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        let id = EntryId::from_ident_and_date(ident, published);
+        let content = item.content_encoded.or(item.content);
         let image = item
             .media
             .iter()
@@ -69,7 +78,7 @@ impl<'a> Entry<'a> {
                 url: Cow::Borrowed(url),
             });
 
-        Entry {
+        let res = Entry {
             id,
             feed_id,
             title: item.title.map(Cow::Borrowed),
@@ -78,21 +87,11 @@ impl<'a> Entry<'a> {
             author: item.author.map(Cow::Borrowed),
             content: content.map(Cow::Borrowed),
             summary: item.description.map(Cow::Borrowed),
-            published: item
-                .pub_date
-                .clone()
-                .map(Into::into)
-                .unwrap_or(OffsetDateTime::UNIX_EPOCH),
+            published,
             created_at,
             image,
-        }
-    }
-
-    pub fn key(&self) -> EntryKey {
-        EntryKey {
-            published: self.published,
-            id: self.id,
-        }
+        };
+        Some(res)
     }
 }
 
@@ -115,39 +114,42 @@ pub struct TaggingId(u64);
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FeedId(u64);
 
+impl FromStr for FeedId {
+    type Err = ParseIntError;
+
+    #[inline]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(FeedId)
+    }
+}
+
 impl FeedId {
     pub fn generate(db: &sled::Db) -> Result<Self, sled::Error> {
         db.generate_id().map(Self)
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct EntryId(u64);
 
 impl EntryId {
-    pub fn from_ident(str: &str) -> Self {
-        const MAX_JS_INT: u64 = (1 << 53) - 1;
-        let hash = fnv1a64(str.as_bytes());
-        EntryId(hash % MAX_JS_INT)
+    // the date is stored as a unix timestamp in the first 4 bytes of the ID
+    // this makes it possible to use the ID for sorting
+    pub fn from_ident_and_date(name: &str, date: OffsetDateTime) -> Self {
+        let mut bytes = [0; 0x8];
+        bytes[0..4].copy_from_slice(&((date.unix_timestamp() / 1000) as u32).to_be_bytes());
+        bytes[4..6].copy_from_slice(&fletcher16(name.as_bytes()).to_be_bytes());
+        EntryId(u64::from_ne_bytes(bytes))
     }
 }
 
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    const PRIME: u64 = 0x100000001b3;
-    const SEED: u64 = 0xCBF29CE484222325;
+fn fletcher16(bytes: &[u8]) -> u16 {
+    let mut sum1 = 0;
+    let mut sum2 = 0;
 
-    let mut hash = SEED;
     for byte in bytes {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(PRIME);
+        sum1 = (sum1 + *byte as u16) % 255;
+        sum2 = (sum2 + sum1) % 255;
     }
-    hash
-}
-
-// enables us to sort entries by publish time
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct EntryKey {
-    #[serde(with = "codecs::rfc3339_date")]
-    published: OffsetDateTime,
-    id: EntryId,
+    (sum2 << 8) | sum1
 }

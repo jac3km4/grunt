@@ -1,17 +1,19 @@
 use std::borrow::Cow;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::Query;
+use axum::extract::{FromRequest, Path, Query, RequestParts};
 use axum::handler::Handler;
-use axum::http::{Request, StatusCode};
-use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
-use axum::{Extension, Json, Router};
+use axum::http::{Method, Request, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
+use axum::routing::{delete, get, post};
+use axum::{async_trait, Extension, Json, Router};
 use rsst::client::RssRequest;
 use serde::Deserialize;
 use time::OffsetDateTime;
 use tower_http::auth::RequireAuthorizationLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use typed_sled::Batch;
 
@@ -21,13 +23,19 @@ use crate::types::{EntryId, FeedId, Subscription};
 use crate::AppConfig;
 
 pub async fn run(repo: Arc<Repo<'static>>, config: &AppConfig) {
-    let admin_api = Router::new()
-        .route("/subscriptions", post(add_subscription))
-        .route("/jobs/refresh", post(refresh_subscriptions));
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
+        .allow_origin(Any);
+
+    let admin_api = Router::new().route("/jobs/refresh", post(refresh_subscriptions));
 
     let feedbin_api = Router::new()
         .route("/authentication.json", get(authenticate))
-        .route("/subscriptions.json", get(get_subscriptions))
+        .route(
+            "/subscriptions.json",
+            get(get_subscriptions).post(add_subscription),
+        )
+        .route("/subscriptions/:id.json", delete(delete_subscription))
         .route(
             "/unread_entries.json",
             get(get_unread).post(post_unread).delete(delete_unread),
@@ -41,9 +49,11 @@ pub async fn run(repo: Arc<Repo<'static>>, config: &AppConfig) {
     let app = Router::new()
         .nest("/admin", admin_api)
         .nest("/feedbin", feedbin_api)
+        .route("/webui", get(get_webui))
         .fallback(fallback.into_service())
         .layer(TraceLayer::new_for_http())
         .layer(RequireAuthorizationLayer::basic(&config.user, &config.password))
+        .layer(cors)
         .layer(Extension(repo.clone()));
 
     tracing::info!("starting a server on port {}", config.port);
@@ -51,6 +61,10 @@ pub async fn run(repo: Arc<Repo<'static>>, config: &AppConfig) {
         .serve(app.into_make_service())
         .await
         .expect("http server failed")
+}
+
+async fn get_webui() -> impl IntoResponse {
+    Html(include_str!("../resources/index.html"))
 }
 
 async fn authenticate() -> StatusCode {
@@ -127,18 +141,32 @@ async fn delete_starred(
 
 async fn get_entries(
     Extension(repo): Extension<Arc<Repo<'_>>>,
-    Query(pagination): Query<Pagination>,
+    Query(query): Query<EntriesQuery>,
 ) -> impl IntoResponse + '_ {
-    let res = repo
-        .entries
-        .iter()
-        .values()
-        .rev()
-        .skip(pagination.per_page * (pagination.page - 1))
-        .take(pagination.per_page)
-        .collect::<Result<Vec<_>, _>>()?;
+    if let Some(true) = query.starred {
+        let results = repo
+            .starred
+            .iter()
+            .keys()
+            .rev()
+            .skip(query.per_page * (query.page - 1))
+            .take(query.per_page)
+            .filter_map(|res| res.ok().and_then(|key| repo.entries.get(&key).ok().flatten()))
+            .collect();
 
-    Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
+        Ok::<_, ServiceEror>((StatusCode::OK, Json(results)))
+    } else {
+        let res = repo
+            .entries
+            .iter()
+            .values()
+            .rev()
+            .skip(query.per_page * (query.page - 1))
+            .take(query.per_page)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
+    }
 }
 
 async fn add_subscription<'a>(
@@ -158,6 +186,14 @@ async fn add_subscription<'a>(
     Ok((StatusCode::OK, Json(sub)).into_response())
 }
 
+async fn delete_subscription(
+    Extension(repo): Extension<Arc<Repo<'_>>>,
+    PathWithExt(feed_id): PathWithExt<FeedId>,
+) -> impl IntoResponse {
+    repo.subs.remove(&feed_id)?;
+    Ok::<_, ServiceEror>(StatusCode::OK)
+}
+
 async fn refresh_subscriptions(Extension(repo): Extension<Arc<Repo<'_>>>) -> impl IntoResponse {
     repo::refresh_all_subsripions(repo.clone()).await?;
     repo.db.flush_async().await?;
@@ -171,9 +207,10 @@ async fn fallback(req: Request<Body>) -> impl IntoResponse {
 }
 
 #[derive(Debug, Deserialize)]
-struct Pagination {
+struct EntriesQuery {
     page: usize,
     per_page: usize,
+    starred: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,4 +226,25 @@ struct UnreadEntries {
 #[derive(Debug, Deserialize)]
 struct StarredEntries {
     starred_entries: Vec<EntryId>,
+}
+
+struct PathWithExt<A>(A);
+
+#[async_trait]
+impl<A: FromStr, B: Send> FromRequest<B> for PathWithExt<A> {
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        let str = req
+            .extract::<Path<String>>()
+            .await
+            .map_err(|_| (StatusCode::BAD_REQUEST, "could not extract path parameter"))?;
+        match str.split_once('.') {
+            Some((str, _)) => str
+                .parse()
+                .map(PathWithExt)
+                .map_err(|_| (StatusCode::BAD_REQUEST, "could not parse path parameter")),
+            None => return Err((StatusCode::BAD_REQUEST, "missing path parameter")),
+        }
+    }
 }
