@@ -1,7 +1,7 @@
 # grunt
 Minimal RSS reader built with Rust.
 
-*note: this project alpha quality*
+*note: this project is alpha quality*
 
 ## CLI usage
 ```
