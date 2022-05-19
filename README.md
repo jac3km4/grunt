@@ -26,7 +26,7 @@ Arguments:
 - no external dependencies, installation is as simple as copying the executable
 - parallelized feed sync
 - very low resource use (uses <20MB of RAM), can be run on Pi and similar
-- zero-copy parsing of RSS feeds
+- zero-copy parsing (both RSS feeds and storage)
 - lightweight built-in frontend
 
 ## frontend
