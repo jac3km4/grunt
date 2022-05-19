@@ -16,8 +16,7 @@ gumdrop = "0.8"
 axum = "0.5"
 tower-http = { version = "0.3", features = ["auth", "trace", "cors"] }
 serde = { version = "1.0", features = ["derive"] }
-sled = "0.34"
-typed-sled = { git = "https://github.com/jac3km4/typed-sled.git", rev = "v0.2.0-zero-copy" }
+sled-bincode = { git = "https://github.com/jac3km4/sled-bincode", rev = "v0.1.0", features = ["serde"] }
 rsst = { git = "https://github.com/jac3km4/rsst", rev = "v0.1.1", features = ["client", "rustls"] }
 
 [profile.release]

@@ -345,7 +345,7 @@ dependencies = [
  "gumdrop",
  "rsst",
  "serde",
- "sled",
+ "sled-bincode",
  "thiserror",
  "time 0.3.9",
  "tokio",
@@ -353,7 +353,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "typed-sled",
 ]
 
 [[package]]
@@ -624,9 +623,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.10.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
+checksum = "7b10983b38c53aebdf33f542c6275b0f58a238129d00c4ae0e6fb59738d783ca"
 
 [[package]]
 name = "ouroboros"
@@ -813,9 +812,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.20.5"
+version = "0.20.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a024a432ae760ab3bff924ad91ce1cfa52cb57ed16e1ef32d0d249cfee1a6c13"
+checksum = "5aab8ee6c7097ed6057f43c187a62418d0c05a4bd5f18b3571db50ee0f9ce033"
 dependencies = [
  "log",
  "ring",
@@ -928,6 +927,17 @@ dependencies = [
  "libc",
  "log",
  "parking_lot",
+]
+
+[[package]]
+name = "sled-bincode"
+version = "0.1.0"
+source = "git+https://github.com/jac3km4/sled-bincode?rev=v0.1.0#0d53803d2c64ead0fbd45f989bdc3d7a32aae800"
+dependencies = [
+ "bincode",
+ "serde",
+ "sled",
+ "thiserror",
 ]
 
 [[package]]
@@ -1204,18 +1214,6 @@ name = "try-lock"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
-
-[[package]]
-name = "typed-sled"
-version = "0.2.0"
-source = "git+https://github.com/jac3km4/typed-sled.git?rev=v0.2.0-zero-copy#1da7cdd63c45d0954bf8ebaad5146d3f48d3be99"
-dependencies = [
- "bincode",
- "pin-project",
- "serde",
- "sled",
- "thiserror",
-]
 
 [[package]]
 name = "unicode-ident"

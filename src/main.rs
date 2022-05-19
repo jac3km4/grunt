@@ -1,10 +1,11 @@
+#![feature(generic_associated_types)]
 use std::sync::Arc;
 
 use futures_util::future::join;
 use gumdrop::Options;
 use repo::Repo;
+use sled_bincode::Tree;
 use tokio_schedule::{every, Job};
-use typed_sled::Tree;
 
 mod codecs;
 mod error;
@@ -33,13 +34,13 @@ async fn main() {
     tracing_subscriber::fmt::init();
     let opts = AppConfig::parse_args_default_or_exit();
 
-    let db = sled::open(&opts.db_path).expect("failed to open the db");
+    let db = sled_bincode::open(&opts.db_path).expect("failed to open the db");
 
     let repo = Repo {
-        subs: Tree::open(&db, "subs"),
-        unread: Tree::open(&db, "unread"),
-        starred: Tree::open(&db, "starred"),
-        entries: Tree::open(&db, "entries"),
+        subs: Tree::open(&db, "subs").unwrap(),
+        unread: Tree::open(&db, "unread").unwrap(),
+        starred: Tree::open(&db, "starred").unwrap(),
+        entries: Tree::open(&db, "entries").unwrap(),
         db,
     };
     let repo = Arc::new(repo);

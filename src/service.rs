@@ -11,18 +11,18 @@ use axum::routing::{delete, get, post};
 use axum::{async_trait, Extension, Json, Router};
 use rsst::client::RssRequest;
 use serde::Deserialize;
+use sled_bincode::Batch;
 use time::OffsetDateTime;
 use tower_http::auth::RequireAuthorizationLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use typed_sled::Batch;
 
 use crate::error::ServiceEror;
 use crate::repo::{self, Repo};
 use crate::types::{EntryId, FeedId, Subscription};
 use crate::AppConfig;
 
-pub async fn run(repo: Arc<Repo<'static>>, config: &AppConfig) {
+pub async fn run(repo: Arc<Repo>, config: &AppConfig) {
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_origin(Any);
@@ -72,23 +72,23 @@ async fn authenticate() -> StatusCode {
     StatusCode::OK
 }
 
-async fn get_subscriptions(Extension(repo): Extension<Arc<Repo<'_>>>) -> impl IntoResponse + '_ {
+async fn get_subscriptions(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
     let res = repo.subs.iter().values().collect::<Result<Vec<_>, _>>()?;
     Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
 }
 
-async fn get_unread(Extension(repo): Extension<Arc<Repo<'_>>>) -> impl IntoResponse {
+async fn get_unread(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
     let res = repo.unread.iter().keys().collect::<Result<Vec<_>, _>>()?;
     Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
 }
 
 async fn post_unread(
-    Extension(repo): Extension<Arc<Repo<'_>>>,
+    Extension(repo): Extension<Arc<Repo>>,
     Json(entries): Json<UnreadEntries>,
 ) -> impl IntoResponse {
     let mut batch = Batch::default();
     for entry in entries.unread_entries {
-        batch.insert(&entry, &());
+        batch.insert(&entry, &())?;
     }
     repo.unread.apply_batch(batch)?;
 
@@ -96,30 +96,30 @@ async fn post_unread(
 }
 
 async fn delete_unread(
-    Extension(repo): Extension<Arc<Repo<'_>>>,
+    Extension(repo): Extension<Arc<Repo>>,
     Json(entries): Json<UnreadEntries>,
 ) -> impl IntoResponse {
     let mut batch = Batch::default();
     for entry in entries.unread_entries {
-        batch.remove(&entry);
+        batch.remove(&entry)?;
     }
     repo.unread.apply_batch(batch)?;
 
     Ok::<_, ServiceEror>(StatusCode::OK)
 }
 
-async fn get_starred(Extension(repo): Extension<Arc<Repo<'_>>>) -> impl IntoResponse {
+async fn get_starred(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
     let res = repo.starred.iter().keys().collect::<Result<Vec<_>, _>>()?;
     Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
 }
 
 async fn post_starred(
-    Extension(repo): Extension<Arc<Repo<'_>>>,
+    Extension(repo): Extension<Arc<Repo>>,
     Json(entries): Json<StarredEntries>,
 ) -> impl IntoResponse {
     let mut batch = Batch::default();
     for entry in entries.starred_entries {
-        batch.insert(&entry, &());
+        batch.insert(&entry, &())?;
     }
     repo.starred.apply_batch(batch)?;
 
@@ -127,12 +127,12 @@ async fn post_starred(
 }
 
 async fn delete_starred(
-    Extension(repo): Extension<Arc<Repo<'_>>>,
+    Extension(repo): Extension<Arc<Repo>>,
     Json(entries): Json<StarredEntries>,
 ) -> impl IntoResponse {
     let mut batch = Batch::default();
     for entry in entries.starred_entries {
-        batch.remove(&entry);
+        batch.remove(&entry)?;
     }
     repo.starred.apply_batch(batch)?;
 
@@ -140,9 +140,9 @@ async fn delete_starred(
 }
 
 async fn get_entries(
-    Extension(repo): Extension<Arc<Repo<'_>>>,
+    Extension(repo): Extension<Arc<Repo>>,
     Query(query): Query<EntriesQuery>,
-) -> impl IntoResponse + '_ {
+) -> impl IntoResponse {
     if let Some(true) = query.starred {
         let results = repo
             .starred
@@ -151,8 +151,9 @@ async fn get_entries(
             .rev()
             .skip(query.per_page * (query.page - 1))
             .take(query.per_page)
-            .filter_map(|res| res.ok().and_then(|key| repo.entries.get(&key).ok().flatten()))
-            .collect();
+            .map(|res| repo.entries.get(&res?.key()?))
+            .filter_map(Result::transpose)
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok::<_, ServiceEror>((StatusCode::OK, Json(results)))
     } else {
@@ -169,14 +170,14 @@ async fn get_entries(
     }
 }
 
-async fn add_subscription<'a>(
-    Extension(repo): Extension<Arc<Repo<'_>>>,
-    Json(add_sub): Json<AddSubscription<'a>>,
+async fn add_subscription(
+    Extension(repo): Extension<Arc<Repo>>,
+    Json(add_sub): Json<AddSubscription<'_>>,
 ) -> Result<Response, ServiceEror> {
     let id = FeedId::generate(&repo.db)?;
     let created_at = OffsetDateTime::now_utc();
     let feed = RssRequest::new(&add_sub.feed_url)?.exec().await?;
-    let sub = Subscription::from_feed(id, feed.borrow_feed(), add_sub.feed_url, created_at);
+    let sub = Subscription::from_feed(id, feed.borrow_feed(), &add_sub.feed_url, created_at);
 
     repo.subs.insert(&id, &sub)?;
     repo::refresh_feed(repo.clone(), id, feed.borrow_feed()).await?;
@@ -187,14 +188,14 @@ async fn add_subscription<'a>(
 }
 
 async fn delete_subscription(
-    Extension(repo): Extension<Arc<Repo<'_>>>,
+    Extension(repo): Extension<Arc<Repo>>,
     PathWithExt(feed_id): PathWithExt<FeedId>,
 ) -> impl IntoResponse {
     repo.subs.remove(&feed_id)?;
     Ok::<_, ServiceEror>(StatusCode::OK)
 }
 
-async fn refresh_subscriptions(Extension(repo): Extension<Arc<Repo<'_>>>) -> impl IntoResponse {
+async fn refresh_subscriptions(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
     repo::refresh_all_subsripions(repo.clone()).await?;
     repo.db.flush_async().await?;
 
