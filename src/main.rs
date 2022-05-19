@@ -1,4 +1,3 @@
-#![feature(generic_associated_types)]
 use std::sync::Arc;
 
 use futures_util::future::join;
