@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::future::join_all;
 use rsst::client::RssRequest;
 use rsst::feed::Feed;
-use sled_bincode::{ConflictableTransactionError, Transactional, Tree};
+use sled_bincode::{ConflictableTransactionError, Db, Transactional, Tree, TreeEntry};
 use time::OffsetDateTime;
 
 use crate::error::ServiceEror;
@@ -12,7 +12,7 @@ use crate::types::{Entry, EntryId, FeedId, Subscription};
 #[derive(Debug, Default)]
 pub struct SubscriptionEntry;
 
-impl<'a> sled_bincode::Entry<'a> for SubscriptionEntry {
+impl<'a> TreeEntry<'a> for SubscriptionEntry {
     type Key = FeedId;
     type Val = Subscription<'a>;
 }
@@ -20,7 +20,7 @@ impl<'a> sled_bincode::Entry<'a> for SubscriptionEntry {
 #[derive(Debug, Default)]
 pub struct MarkedEntry;
 
-impl<'a> sled_bincode::Entry<'a> for MarkedEntry {
+impl<'a> TreeEntry<'a> for MarkedEntry {
     type Key = EntryId;
     type Val = ();
 }
@@ -28,13 +28,13 @@ impl<'a> sled_bincode::Entry<'a> for MarkedEntry {
 #[derive(Debug, Default)]
 pub struct FeedEntry;
 
-impl<'a> sled_bincode::Entry<'a> for FeedEntry {
+impl<'a> TreeEntry<'a> for FeedEntry {
     type Key = EntryId;
     type Val = Entry<'a>;
 }
 
 pub struct Repo {
-    pub db: sled_bincode::Db,
+    pub db: Db,
     pub subs: Tree<SubscriptionEntry>,
     pub unread: Tree<MarkedEntry>,
     pub starred: Tree<MarkedEntry>,

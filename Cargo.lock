@@ -422,9 +422,9 @@ dependencies = [
 
 [[package]]
 name = "http-body"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ff4f84919677303da5f147645dbea6b1881f368d03ac84e1dc09031ebd7b2c6"
+checksum = "d5f38f16d184e36f2408a55281cd658ecbd3ca05cce6d6510a176eca393e26d1"
 dependencies = [
  "bytes",
  "http",
@@ -931,12 +931,13 @@ dependencies = [
 
 [[package]]
 name = "sled-bincode"
-version = "0.1.0"
-source = "git+https://github.com/jac3km4/sled-bincode?rev=v0.1.0#0d53803d2c64ead0fbd45f989bdc3d7a32aae800"
+version = "0.1.2"
+source = "git+https://github.com/jac3km4/sled-bincode?rev=v0.1.2#6ecbc64e49e1f5ea763d23dc3698fe0a7561e499"
 dependencies = [
  "bincode",
  "serde",
  "sled",
+ "smallvec",
  "thiserror",
 ]
 

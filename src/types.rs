@@ -65,7 +65,7 @@ impl<'a> Entry<'a> {
             .find_map(|media| {
                 media.url.filter(|_| {
                     media.medium == Some(ContentMedium::Image)
-                        || media.mime_type.filter(|str| str.starts_with("image/")).is_some()
+                        || matches!(media.mime_type, Some(str) if str.starts_with("image/"))
                 })
             })
             .map(|url| Image { url });
