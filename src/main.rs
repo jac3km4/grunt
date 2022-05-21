@@ -1,14 +1,15 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::future::join;
 use gumdrop::Options;
+use refresh::refresh_all_feeds;
 use repo::Repo;
-use sled_bincode::Tree;
-use tokio_schedule::{every, Job};
 
 mod codecs;
-mod error;
+mod refresh;
 mod repo;
+mod result;
 mod service;
 mod types;
 
@@ -33,22 +34,20 @@ async fn main() {
     tracing_subscriber::fmt::init();
     let opts = AppConfig::parse_args_default_or_exit();
 
-    let db = sled_bincode::open(&opts.db_path).expect("failed to open the db");
+    let repo = Arc::new(Repo::new(&opts.db_path).unwrap());
+    let daemon = tokio::spawn(refresh_daemon(repo.clone(), opts.interval_minutes.into()));
+    let service = service::run(repo, &opts);
 
-    let repo = Repo {
-        subs: Tree::open(&db, "subs").unwrap(),
-        unread: Tree::open(&db, "unread").unwrap(),
-        starred: Tree::open(&db, "starred").unwrap(),
-        entries: Tree::open(&db, "entries").unwrap(),
-        taggings: Tree::open(&db, "taggings").unwrap(),
-        db,
-    };
-    let repo = Arc::new(repo);
+    join(daemon, service).await.0.unwrap();
+}
 
-    let scheduler = every(opts.interval_minutes)
-        .minutes()
-        .perform(|| repo::trigger_refresh_all_subsripions(repo.clone()));
-    let service = service::run(repo.clone(), &opts);
+async fn refresh_daemon(repo: Arc<Repo>, interval: u64) {
+    let mut interval = tokio::time::interval(Duration::from_secs(interval * 60));
 
-    join(scheduler, service).await;
+    loop {
+        interval.tick().await;
+        if let Err(err) = refresh_all_feeds(&repo).await {
+            tracing::error!("subscription refresh failed: {err}");
+        }
+    }
 }

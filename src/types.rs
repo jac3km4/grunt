@@ -3,7 +3,6 @@ use std::str::FromStr;
 
 use rsst::feed::{ContentMedium, Feed, Item};
 use serde::{Deserialize, Serialize};
-use sled_bincode::{Db, SledError};
 use time::OffsetDateTime;
 
 use crate::codecs;
@@ -108,13 +107,7 @@ pub struct Image<'a> {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct TaggingId(u64);
-
-impl TaggingId {
-    pub fn generate(db: &Db) -> Result<Self, SledError> {
-        db.generate_id().map(Self)
-    }
-}
+pub struct TaggingId(pub(super) u64);
 
 impl FromStr for TaggingId {
     type Err = ParseIntError;
@@ -125,8 +118,8 @@ impl FromStr for TaggingId {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct FeedId(u64);
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FeedId(pub(super) u64);
 
 impl FromStr for FeedId {
     type Err = ParseIntError;
@@ -134,12 +127,6 @@ impl FromStr for FeedId {
     #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse().map(Self)
-    }
-}
-
-impl FeedId {
-    pub fn generate(db: &Db) -> Result<Self, SledError> {
-        db.generate_id().map(Self)
     }
 }
 

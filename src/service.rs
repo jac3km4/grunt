@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -10,15 +10,15 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{async_trait, Extension, Json, Router};
 use rsst::client::{RssClient, RssRequest};
-use serde::Deserialize;
-use sled_bincode::Batch;
+use serde::{Deserialize, Deserializer};
 use time::OffsetDateTime;
 use tower_http::auth::RequireAuthorizationLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::error::ServiceEror;
-use crate::repo::{self, Repo};
+use crate::refresh::{refresh_all_feeds, refresh_feed};
+use crate::repo::Repo;
+use crate::result::{Result, ServiceEror};
 use crate::types::{EntryId, FeedId, Subscription, Tagging, TaggingId};
 use crate::AppConfig;
 
@@ -45,10 +45,8 @@ pub async fn run(repo: Arc<Repo>, config: &AppConfig) {
             get(get_starred).post(post_starred).delete(delete_starred),
         )
         .route("/entries.json", get(get_entries))
-        .route(
-            "/taggings.json",
-            get(get_taggings).post(create_tagging).delete(delete_tagging),
-        );
+        .route("/taggings.json", get(get_taggings).post(create_tagging))
+        .route("/taggings/:id.json", delete(delete_tagging));
 
     let app = Router::new()
         .nest("/admin", admin_api)
@@ -77,70 +75,45 @@ async fn authenticate() -> StatusCode {
 }
 
 async fn get_subscriptions(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
-    let res = repo.subs.iter().values().collect::<Result<Vec<_>, _>>()?;
-    Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
+    repo.get_subscriptions().map(Json)
 }
 
 async fn get_unread(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
-    let res = repo.unread.iter().keys().collect::<Result<Vec<_>, _>>()?;
-    Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
+    repo.get_unread().map(Json)
 }
 
 async fn post_unread(
     Extension(repo): Extension<Arc<Repo>>,
     Json(entries): Json<UnreadEntries>,
 ) -> impl IntoResponse {
-    let mut batch = Batch::default();
-    for entry in entries.unread_entries {
-        batch.insert(&entry, &())?;
-    }
-    repo.unread.apply_batch(batch)?;
-
-    Ok::<_, ServiceEror>(StatusCode::OK)
+    repo.add_unread(entries.unread_entries.iter().copied())?;
+    Ok::<_, ServiceEror>(Json(entries.unread_entries))
 }
 
 async fn delete_unread(
     Extension(repo): Extension<Arc<Repo>>,
     Json(entries): Json<UnreadEntries>,
 ) -> impl IntoResponse {
-    let mut batch = Batch::default();
-    for entry in entries.unread_entries {
-        batch.remove(&entry)?;
-    }
-    repo.unread.apply_batch(batch)?;
-
-    Ok::<_, ServiceEror>(StatusCode::OK)
+    repo.delete_unread(entries.unread_entries)
 }
 
 async fn get_starred(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
-    let res = repo.starred.iter().keys().collect::<Result<Vec<_>, _>>()?;
-    Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
+    repo.get_starred().map(Json)
 }
 
 async fn post_starred(
     Extension(repo): Extension<Arc<Repo>>,
     Json(entries): Json<StarredEntries>,
 ) -> impl IntoResponse {
-    let mut batch = Batch::default();
-    for entry in entries.starred_entries {
-        batch.insert(&entry, &())?;
-    }
-    repo.starred.apply_batch(batch)?;
-
-    Ok::<_, ServiceEror>(StatusCode::OK)
+    repo.add_starred(entries.starred_entries.iter().copied())?;
+    Ok::<_, ServiceEror>(Json(entries.starred_entries))
 }
 
 async fn delete_starred(
     Extension(repo): Extension<Arc<Repo>>,
     Json(entries): Json<StarredEntries>,
 ) -> impl IntoResponse {
-    let mut batch = Batch::default();
-    for entry in entries.starred_entries {
-        batch.remove(&entry)?;
-    }
-    repo.starred.apply_batch(batch)?;
-
-    Ok::<_, ServiceEror>(StatusCode::OK)
+    repo.delete_starred(entries.starred_entries)
 }
 
 async fn get_entries(
@@ -148,87 +121,60 @@ async fn get_entries(
     Query(query): Query<EntriesQuery>,
 ) -> impl IntoResponse {
     if let Some(true) = query.starred {
-        let results = repo
-            .starred
-            .iter()
-            .keys()
-            .rev()
-            .skip(query.per_page * (query.page - 1))
-            .take(query.per_page)
-            .map(|res| repo.entries.get(&res?.key()?))
-            .filter_map(Result::transpose)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok::<_, ServiceEror>((StatusCode::OK, Json(results)))
+        repo.get_starred_entries(query.page, query.per_page).map(Json)
     } else {
-        let res = repo
-            .entries
-            .iter()
-            .values()
-            .rev()
-            .skip(query.per_page * (query.page - 1))
-            .take(query.per_page)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
+        repo.get_entries(query.page, query.per_page, &query.tags)
+            .map(Json)
     }
 }
 
 async fn add_subscription(
     Extension(repo): Extension<Arc<Repo>>,
-    Json(add_sub): Json<AddSubscription<'_>>,
+    Json(add_sub): Json<AddSubscription>,
 ) -> Result<Response, ServiceEror> {
     let created_at = OffsetDateTime::now_utc();
     let feed = RssClient::default()
         .exec(RssRequest::new(&add_sub.feed_url)?)
         .await?;
-    let id = FeedId::generate(&repo.db)?;
+    let id = repo.new_feed_id()?;
     let sub = Subscription::from_feed(id, feed.borrow_feed(), &add_sub.feed_url, created_at);
-
-    repo.subs.insert(&id, &sub)?;
-    repo::refresh_feed(repo.clone(), id, feed.borrow_feed()).await?;
-    repo.db.flush_async().await?;
+    repo.add_subscription(&sub)?;
+    refresh_feed(&repo, id, feed.borrow_feed())?;
 
     tracing::info!("successfully added a subscription for {}", sub.feed_url);
-    Ok((StatusCode::OK, Json(sub)).into_response())
+    Ok((StatusCode::CREATED, Json(sub)).into_response())
 }
 
 async fn delete_subscription(
     Extension(repo): Extension<Arc<Repo>>,
     PathWithExt(feed_id): PathWithExt<FeedId>,
 ) -> impl IntoResponse {
-    repo.subs.remove(&feed_id)?;
-    Ok::<_, ServiceEror>(StatusCode::OK)
+    repo.delete_subscription(feed_id)
 }
 
 async fn refresh_subscriptions(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
-    repo::refresh_all_subsripions(repo.clone()).await?;
-    repo.db.flush_async().await?;
-
-    Ok::<_, ServiceEror>(StatusCode::OK)
+    refresh_all_feeds(&repo).await
 }
 
 async fn get_taggings(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
-    let res = repo.subs.iter().values().collect::<Result<Vec<_>, _>>()?;
-    Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
+    repo.get_taggings().map(Json)
 }
 
 async fn create_tagging(
     Extension(repo): Extension<Arc<Repo>>,
-    Json(add_tagging): Json<AddTagging<'_>>,
+    Json(add_tagging): Json<AddTagging>,
 ) -> Result<Response, ServiceEror> {
-    let id = TaggingId::generate(&repo.db)?;
+    let id = repo.new_tagging_id()?;
     let tagging = Tagging::new(id, add_tagging.feed_id, &add_tagging.name);
-    repo.taggings.insert(&id, &tagging)?;
-    Ok((StatusCode::OK, Json(tagging)).into_response())
+    repo.add_tagging(&tagging)?;
+    Ok((StatusCode::CREATED, Json(tagging)).into_response())
 }
 
 async fn delete_tagging(
     Extension(repo): Extension<Arc<Repo>>,
     PathWithExt(tagging_id): PathWithExt<TaggingId>,
 ) -> impl IntoResponse {
-    repo.taggings.remove(&tagging_id)?;
-    Ok::<_, ServiceEror>(StatusCode::OK)
+    repo.delete_tagging(tagging_id)
 }
 
 async fn fallback(req: Request<Body>) -> impl IntoResponse {
@@ -241,11 +187,13 @@ struct EntriesQuery {
     page: usize,
     per_page: usize,
     starred: Option<bool>,
+    #[serde(deserialize_with = "deserialize_qs_array", default)]
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct AddSubscription<'a> {
-    feed_url: Cow<'a, str>,
+struct AddSubscription {
+    feed_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,9 +207,9 @@ struct StarredEntries {
 }
 
 #[derive(Debug, Deserialize)]
-struct AddTagging<'a> {
+struct AddTagging {
     feed_id: FeedId,
-    name: Cow<'a, str>,
+    name: String,
 }
 
 struct PathWithExt<A>(A);
@@ -283,4 +231,17 @@ impl<A: FromStr, B: Send> FromRequest<B> for PathWithExt<A> {
             None => return Err((StatusCode::BAD_REQUEST, "missing path parameter")),
         }
     }
+}
+
+fn deserialize_qs_array<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    T::Err: Display,
+{
+    <&'de str>::deserialize(deserializer)?
+        .split(',')
+        .map(T::from_str)
+        .collect::<Result<Vec<T>, T::Err>>()
+        .map_err(serde::de::Error::custom)
 }
