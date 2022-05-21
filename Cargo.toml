@@ -17,7 +17,7 @@ axum = "0.5"
 tower-http = { version = "0.3", features = ["auth", "trace", "cors"] }
 serde = { version = "1.0", features = ["derive"] }
 sled-bincode = { git = "https://github.com/jac3km4/sled-bincode", rev = "v0.1.2", features = ["serde"] }
-rsst = { git = "https://github.com/jac3km4/rsst", rev = "v0.1.1", features = ["client", "rustls"] }
+rsst = { git = "https://github.com/jac3km4/rsst", rev = "v0.1.2", features = ["client", "rustls"] }
 
 [profile.release]
 strip = "symbols"

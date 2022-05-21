@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures_util::future::join_all;
-use rsst::client::RssRequest;
+use rsst::client::{RssClient, RssRequest};
 use rsst::feed::Feed;
 use sled_bincode::{ConflictableTransactionError, Db, Transactional, Tree, TreeEntry};
 use time::OffsetDateTime;
@@ -50,12 +50,13 @@ pub async fn trigger_refresh_all_subsripions(repo: Arc<Repo>) {
 pub async fn refresh_all_subsripions(repo: Arc<Repo>) -> Result<(), ServiceEror> {
     tracing::info!("refreshing all subscriptions");
 
+    let client = RssClient::default();
     let mut tasks = vec![];
     for res in repo.subs.iter().values() {
         let sub = res?;
         let sub = sub.value()?;
-        let req = RssRequest::new(sub.feed_url)?;
-        tasks.push(async move { req.exec().await.map(|res| (sub.feed_id, res)) });
+        let task = client.exec(RssRequest::new(sub.feed_url)?);
+        tasks.push(async move { task.await.map(|res| (sub.feed_id, res)) })
     }
     for res in join_all(tasks).await {
         match res {

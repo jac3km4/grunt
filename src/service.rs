@@ -9,7 +9,7 @@ use axum::http::{Method, Request, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{async_trait, Extension, Json, Router};
-use rsst::client::RssRequest;
+use rsst::client::{RssClient, RssRequest};
 use serde::Deserialize;
 use sled_bincode::Batch;
 use time::OffsetDateTime;
@@ -174,9 +174,11 @@ async fn add_subscription(
     Extension(repo): Extension<Arc<Repo>>,
     Json(add_sub): Json<AddSubscription<'_>>,
 ) -> Result<Response, ServiceEror> {
-    let id = FeedId::generate(&repo.db)?;
     let created_at = OffsetDateTime::now_utc();
-    let feed = RssRequest::new(&add_sub.feed_url)?.exec().await?;
+    let feed = RssClient::default()
+        .exec(RssRequest::new(&add_sub.feed_url)?)
+        .await?;
+    let id = FeedId::generate(&repo.db)?;
     let sub = Subscription::from_feed(id, feed.borrow_feed(), &add_sub.feed_url, created_at);
 
     repo.subs.insert(&id, &sub)?;
