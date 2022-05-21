@@ -7,7 +7,7 @@ use sled_bincode::{ConflictableTransactionError, Db, Transactional, Tree, TreeEn
 use time::OffsetDateTime;
 
 use crate::error::ServiceEror;
-use crate::types::{Entry, EntryId, FeedId, Subscription};
+use crate::types::{Entry, EntryId, FeedId, Subscription, Tagging, TaggingId};
 
 #[derive(Debug, Default)]
 pub struct SubscriptionEntry;
@@ -33,12 +33,21 @@ impl<'a> TreeEntry<'a> for FeedEntry {
     type Val = Entry<'a>;
 }
 
+#[derive(Debug, Default)]
+pub struct TaggingEntry;
+
+impl<'a> TreeEntry<'a> for TaggingEntry {
+    type Key = TaggingId;
+    type Val = Tagging<'a>;
+}
+
 pub struct Repo {
     pub db: Db,
     pub subs: Tree<SubscriptionEntry>,
     pub unread: Tree<MarkedEntry>,
     pub starred: Tree<MarkedEntry>,
     pub entries: Tree<FeedEntry>,
+    pub taggings: Tree<TaggingEntry>,
 }
 
 pub async fn trigger_refresh_all_subsripions(repo: Arc<Repo>) {

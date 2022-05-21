@@ -40,6 +40,7 @@ async fn main() {
         unread: Tree::open(&db, "unread").unwrap(),
         starred: Tree::open(&db, "starred").unwrap(),
         entries: Tree::open(&db, "entries").unwrap(),
+        taggings: Tree::open(&db, "taggings").unwrap(),
         db,
     };
     let repo = Arc::new(repo);

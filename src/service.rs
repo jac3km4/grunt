@@ -19,7 +19,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::error::ServiceEror;
 use crate::repo::{self, Repo};
-use crate::types::{EntryId, FeedId, Subscription};
+use crate::types::{EntryId, FeedId, Subscription, Tagging, TaggingId};
 use crate::AppConfig;
 
 pub async fn run(repo: Arc<Repo>, config: &AppConfig) {
@@ -44,7 +44,11 @@ pub async fn run(repo: Arc<Repo>, config: &AppConfig) {
             "/starred_entries.json",
             get(get_starred).post(post_starred).delete(delete_starred),
         )
-        .route("/entries.json", get(get_entries));
+        .route("/entries.json", get(get_entries))
+        .route(
+            "/taggings.json",
+            get(get_taggings).post(create_tagging).delete(delete_tagging),
+        );
 
     let app = Router::new()
         .nest("/admin", admin_api)
@@ -204,8 +208,31 @@ async fn refresh_subscriptions(Extension(repo): Extension<Arc<Repo>>) -> impl In
     Ok::<_, ServiceEror>(StatusCode::OK)
 }
 
+async fn get_taggings(Extension(repo): Extension<Arc<Repo>>) -> impl IntoResponse {
+    let res = repo.subs.iter().values().collect::<Result<Vec<_>, _>>()?;
+    Ok::<_, ServiceEror>((StatusCode::OK, Json(res)))
+}
+
+async fn create_tagging(
+    Extension(repo): Extension<Arc<Repo>>,
+    Json(add_tagging): Json<AddTagging<'_>>,
+) -> Result<Response, ServiceEror> {
+    let id = TaggingId::generate(&repo.db)?;
+    let tagging = Tagging::new(id, add_tagging.feed_id, &add_tagging.name);
+    repo.taggings.insert(&id, &tagging)?;
+    Ok((StatusCode::OK, Json(tagging)).into_response())
+}
+
+async fn delete_tagging(
+    Extension(repo): Extension<Arc<Repo>>,
+    PathWithExt(tagging_id): PathWithExt<TaggingId>,
+) -> impl IntoResponse {
+    repo.taggings.remove(&tagging_id)?;
+    Ok::<_, ServiceEror>(StatusCode::OK)
+}
+
 async fn fallback(req: Request<Body>) -> impl IntoResponse {
-    tracing::info!("fallback {:?}", req);
+    tracing::info!("request not matched: {}", req.uri());
     StatusCode::NOT_FOUND
 }
 
@@ -229,6 +256,12 @@ struct UnreadEntries {
 #[derive(Debug, Deserialize)]
 struct StarredEntries {
     starred_entries: Vec<EntryId>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AddTagging<'a> {
+    feed_id: FeedId,
+    name: Cow<'a, str>,
 }
 
 struct PathWithExt<A>(A);

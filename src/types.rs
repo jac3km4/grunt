@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use rsst::feed::{ContentMedium, Feed, Item};
 use serde::{Deserialize, Serialize};
+use sled_bincode::{Db, SledError};
 use time::OffsetDateTime;
 
 use crate::codecs;
@@ -94,6 +95,12 @@ pub struct Tagging<'a> {
     pub name: &'a str,
 }
 
+impl<'a> Tagging<'a> {
+    pub fn new(id: TaggingId, feed_id: FeedId, name: &'a str) -> Self {
+        Self { id, feed_id, name }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Image<'a> {
     #[serde(rename = "original_url")]
@@ -103,6 +110,21 @@ pub struct Image<'a> {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TaggingId(u64);
 
+impl TaggingId {
+    pub fn generate(db: &Db) -> Result<Self, SledError> {
+        db.generate_id().map(Self)
+    }
+}
+
+impl FromStr for TaggingId {
+    type Err = ParseIntError;
+
+    #[inline]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(Self)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FeedId(u64);
 
@@ -111,12 +133,12 @@ impl FromStr for FeedId {
 
     #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse().map(FeedId)
+        s.parse().map(Self)
     }
 }
 
 impl FeedId {
-    pub fn generate(db: &sled_bincode::Db) -> Result<Self, sled_bincode::SledError> {
+    pub fn generate(db: &Db) -> Result<Self, SledError> {
         db.generate_id().map(Self)
     }
 }
