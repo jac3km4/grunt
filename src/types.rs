@@ -94,6 +94,12 @@ pub struct Tagging<'a> {
     pub name: &'a str,
 }
 
+impl<'a> Tagging<'a> {
+    pub fn new(id: TaggingId, feed_id: FeedId, name: &'a str) -> Self {
+        Self { id, feed_id, name }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Image<'a> {
     #[serde(rename = "original_url")]
@@ -101,23 +107,26 @@ pub struct Image<'a> {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct TaggingId(u64);
+pub struct TaggingId(pub(super) u64);
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct FeedId(u64);
+impl FromStr for TaggingId {
+    type Err = ParseIntError;
+
+    #[inline]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse().map(Self)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FeedId(pub(super) u64);
 
 impl FromStr for FeedId {
     type Err = ParseIntError;
 
     #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse().map(FeedId)
-    }
-}
-
-impl FeedId {
-    pub fn generate(db: &sled_bincode::Db) -> Result<Self, sled_bincode::SledError> {
-        db.generate_id().map(Self)
+        s.parse().map(Self)
     }
 }
 

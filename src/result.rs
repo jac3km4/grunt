@@ -1,5 +1,8 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
+use rsst::client::RssError;
+use serde_json::json;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -8,9 +11,14 @@ pub enum ServiceEror {
     DbError(#[from] sled_bincode::Error),
     #[error("transaction failed: {0}")]
     TransactionFailed(#[from] sled_bincode::TransactionError),
-    #[error("rss client error: {0}")]
-    RssError(#[from] rsst::client::RssError),
+    #[error(
+        "{0} ({})",
+        if matches!(.0, RssError::XmlDecode(_)) { "possibly RSS 1.0" } else { "RSS lookup failed" })
+    ]
+    RssError(#[from] RssError),
 }
+
+pub type Result<A, E = ServiceEror> = std::result::Result<A, E>;
 
 impl From<sled_bincode::SledError> for ServiceEror {
     fn from(err: sled_bincode::SledError) -> Self {
@@ -20,6 +28,7 @@ impl From<sled_bincode::SledError> for ServiceEror {
 
 impl IntoResponse for ServiceEror {
     fn into_response(self) -> Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response()
+        let body = json!({"message": self.to_string()});
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
     }
 }

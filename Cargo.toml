@@ -10,12 +10,12 @@ time = { version = "0.3", features = ["formatting"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tokio = { version = "1.18", features = ["sync", "rt-multi-thread", "macros"] }
-tokio_schedule = "0.3"
 futures-util = "0.3"
 gumdrop = "0.8"
 axum = "0.5"
 tower-http = { version = "0.3", features = ["auth", "trace", "cors"] }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 sled-bincode = { git = "https://github.com/jac3km4/sled-bincode", rev = "v0.1.2", features = ["serde"] }
 rsst = { git = "https://github.com/jac3km4/rsst", rev = "v0.1.2", features = ["client", "rustls"] }
 
