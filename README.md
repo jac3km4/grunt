@@ -24,10 +24,12 @@ Arguments:
 ## features
 - serves a [Feedbin API](https://github.com/feedbin/feedbin-api), supported by clients like [Fluent Reader](https://github.com/yang991178/fluent-reader)
 - no external dependencies, installation is as simple as copying the executable
+  - uses [sled](https://github.com/spacejam/sled) as an embedded database
 - parallelized feed sync
 - very low resource use (uses <20MB of RAM), can be run on Pi and similar
-- zero-copy parsing (both RSS feeds and storage)
+  - zero-copy parsing (both RSS feeds and storage)
 - lightweight built-in frontend
+  - includes feed management and filtering by tags
 
 ## frontend
 Grunt comes with a lightweight frontend (source available [here](https://github.com/jac3km4/grunt-frontend)).
